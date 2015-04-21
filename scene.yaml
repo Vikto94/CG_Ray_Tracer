@@ -1,0 +1,18 @@
+- camera:
+   position: {x: 0, y: 0, z: 250}
+   orientation: {h: -90, p: 1, r: 0.5}
+   fov_x: 100
+   fov_y: 95
+
+- node:
+   - lcs: {x: 0, y: 0, z: 0, h: 0, p: 0, r: 0, sx: 2, sy: 2, sz: 2}
+   - sphere: 
+      radius: 200
+   - cone: 
+      radius: 400
+	  height: 30
+   - node: 
+      - lcs: {x: 0, y: 0, z: 0, h: 0, p: 0, r: 0, sx: 0.01, sy: 0.01, sz: 0.01}
+      - obj_model: 
+          file_name: "SwordMinecraft.obj"
+   
