@@ -64,20 +64,29 @@ void RayTracer::ScanCamera(FILE *f)
 	m_scene.m_inv = inverse(m_scene.m_mat);
 }
 
-std::shared_ptr<Object> RayTracer::ParseNode(FILE *f, unt indent)
+std::shared_ptr<Object> RayTracer::ParseNode(FILE *f, unt indent, csg_type tp)
 {
 	std::shared_ptr<GroupObject> node(new GroupObject());
-	char buf[1001];
+	node->m_csg_type = tp;
+	static bool flag = false;
+	static char buf[1001];
 	while (true)
 	{
-		if (!fgets(buf, 1000, f))
-			return node;
-		if (buf[0] == '#')
-			continue;
+		if (!flag)
+		{
+			if (!fgets(buf, 1000, f))
+				return node;
+			if (buf[0] == '#')
+				continue;
+		}
 		std::string row(buf);
 		if (row.find("-") < indent)
+		{
+			flag = true;
 			return node;
+		}
 
+		flag = false;
 		if (row.find("- lcs:") != std::string::npos)
 		{
 			unt pos_start_x = row.find("x:") + 2, pos_end_x = row.find(",");
@@ -211,7 +220,35 @@ std::shared_ptr<Object> RayTracer::ParseNode(FILE *f, unt indent)
 		{
 			unt pos = row.find("- node:");
 			if (pos != std::string::npos)
-			    node->push_back(ParseNode(f, pos + 1));
+				node->push_back(ParseNode(f, pos + 1, CSG_NONE));
+			else
+			{
+				csg_type type = CSG_NONE;
+				if (row.find("- csg_union:") != std::string::npos)
+					type = CSG_UNION;
+				else if (row.find("- csg_difference:") != std::string::npos)
+					type = CSG_DIFFERENCE;
+				else if (row.find("- csg_intersection:") != std::string::npos)
+					type = CSG_INTERSECTION;
+
+				if (type != CSG_NONE)
+				{
+					pos = row.find("- csg_");
+					node->push_back(ParseNode(f, pos + 1, type));
+				}
+				else
+				{
+					pos = row.find("- left_node:");
+					if (pos != std::string::npos)
+						node->push_back(ParseNode(f, pos + 1, CSG_NONE));
+					else
+					{
+						pos = row.find("- right_node:");
+						if (pos != std::string::npos)
+							node->push_back(ParseNode(f, pos + 1, CSG_NONE));
+					}
+				}
+			}
 		}
 	}
 	return node;
@@ -220,6 +257,7 @@ std::shared_ptr<Object> RayTracer::ParseNode(FILE *f, unt indent)
 void RayTracer::ScanObject(FILE *f)
 {
 	m_scene.push_back(ParseNode(f, 1));
+	m_scene.m_csg_type = CSG_UNION;
 }
 
 RayTracer::RayTracer(	std::string		scene,
@@ -264,11 +302,11 @@ void RayTracer::traceRays() {
 		for (int y = 0; y < height; y++) {
 			u = (x - 0.5f * width);
 			v = (y - 0.5f * height);
-			ray.direction = glm::vec3(u, dist, v);
-/*			if (x == 147 && y == height / 2)
+			ray.direction = /*glm::normalize*/(glm::vec3(u, dist, v));
+			if (x == 147 && y == height / 2)
 			{
 				x = x;
-			}*/
+			}
 			image.setPixelColor(x + width_shift, y + height_shift, traceRay(ray));
 		}
 	}
@@ -287,9 +325,13 @@ float len(glm::vec3 vec){
 Color RayTracer::traceRay(Ray ray) {
 	Intersector in = m_scene.intersect(ray);
 	if (in.size() > 0) {
-		return Color(len(in[0].point), len(in[0].point), len(in[0].point));
+		Intersection r = in.getFirst();
+		if (r.param <= 0)
+			return Color(0, 0, 0);
+		return Color(len(r.point), len(r.point), len(r.point));
 	}
-	else {
+	else
+	{
 		return Color(0, 0, 0);
 	}
 }

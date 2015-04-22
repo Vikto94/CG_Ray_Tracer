@@ -17,7 +17,7 @@ private:
 
   void ScanCamera(FILE *f);
   void ScanObject(FILE *f);
-  std::shared_ptr<Object> ParseNode(FILE *f, unt indent);
+  std::shared_ptr<Object> ParseNode(FILE *f, unt indent, csg_type tp = CSG_UNION);
 
   Camera camera;
   Image image;

@@ -1,5 +1,6 @@
 #include "geometry.h"
 #include <stdio.h>
+#include <algorithm>
 
 void GroupObject::push_back(std::shared_ptr<Object> obj)
 {
@@ -13,59 +14,303 @@ Intersector GroupObject::intersect(Ray ray)
 	vdir = m_mat * vdir;
 	vorigin = m_mat * vorigin;
 	Ray v;
-	v.direction = glm::vec3(vdir.x, vdir.y, vdir.z);
+	v.direction = /*glm::normalize*/(glm::vec3(vdir.x, vdir.y, vdir.z));
 	v.origin = glm::vec3(vorigin.x, vorigin.y, vorigin.z);
-	Intersector res(v);
+	Intersector res(ray);
 	for (unt i = 0; i < m_scene.size(); i++)
 	{
 		Intersector r = m_scene[i]->intersect(v);
-		if (r.size())
-			res.push_back(r[0]);
+		if (i > 0)
+		{
+			switch (m_csg_type)
+			{
+			case CSG_NONE:
+			case CSG_UNION: res.csg_union(r); break;
+			case CSG_DIFFERENCE: res.csg_difference(r); break;
+			case CSG_INTERSECTION: res.csg_intersection(r); break;
+			}
+		}
+		else
+			res.push_back(r);
 	}
-	if (res.size())
-	{
-		glm::vec4 vec(res[0].point.x, res[0].point.y, res[0].point.z, 1.f);
-		vec = m_inv * vec;
-		Intersector r(ray);
-		r.push_back(Intersection(glm::vec3(vec.x, vec.y, vec.z)));
-		return r;
-	}
+	res.mul_on_mat(m_inv);
 	return res;
 }
 
-void IntersectionObject::push_back(std::shared_ptr<Object> obj)
+void Intersector::mul_on_mat(glm::mat4x4 &mat)
 {
-	m_scene.push_back(obj);
+	for (unt i = 0; i < m_intersections.size(); i++)
+	{
+		glm::vec4 vec(m_intersections[i].point.x, m_intersections[i].point.y, m_intersections[i].point.z, 1.f);
+		vec = mat * vec;
+		m_intersections[i].point.x = vec.x;
+		m_intersections[i].point.y = vec.y;
+		m_intersections[i].point.z = vec.z;
+
+		float k;
+		if (abs(m_ray.direction.x) > abs(m_ray.direction.y) && abs(m_ray.direction.x) > abs(m_ray.direction.z))
+			k = (m_intersections[i].point.x - m_ray.origin.x) / m_ray.direction.x;
+		else if (abs(m_ray.direction.y) > abs(m_ray.direction.z))
+			k = (m_intersections[i].point.y - m_ray.origin.y) / m_ray.direction.y;
+		else
+			k = (m_intersections[i].point.z - m_ray.origin.z) / m_ray.direction.z;
+
+		m_intersections[i].param = k;
+	}
 }
 
-Intersector IntersectionObject::intersect(Ray ray)
+bool Intersector::sort()
 {
-	glm::vec4 vdir(ray.direction.x, ray.direction.y, ray.direction.z, 1);
-	glm::vec4 vorigin(ray.origin.x, ray.origin.y, ray.origin.z, 1);
-	vdir = m_mat * vdir;
-	vorigin = m_mat * vorigin;
-	Ray v;
-	v.direction = glm::vec3(vdir.x, vdir.y, vdir.z);
-	v.origin = glm::vec3(vorigin.x, vorigin.y, vorigin.z);
-	Intersector res(v);
-	for (unt i = 0; i < m_scene.size(); i++)
+	struct paramCmpr
 	{
-		Intersector r = m_scene[i]->intersect(v);
-		if (r.size())
-			res.push_back(r[0]);
-	}
-	if (res.size())
-	{
-		glm::vec4 vec(res[0].point.x, res[0].point.y, res[0].point.z, 1.f);
-		vec = m_inv * vec;
-		Intersector r(ray);
-		r.push_back(Intersection(glm::vec3(vec.x, vec.y, vec.z)));
-		return r;
-	}
-	return res;
+		bool operator() (Intersection &i, Intersection &j)
+		{
+			return i.param < j.param;
+		}
+	};
+	paramCmpr cmpr;
+	std::sort(m_intersections.begin(), m_intersections.end(), cmpr);
+	return true;
 }
 
-bool Intersector::push_back(Intersection point)
+enum geo_state { GEO_OUT, GEO_IN_1_, GEO_IN_2_, GEO_IN_1_2_ };
+
+bool Intersector::csg_union(Intersector &in)
+{
+	if (in.size() == 0)
+		return true;
+	if (m_intersections.size() == 0)
+	{
+		push_back(in);
+		return true;
+	}
+	sort();
+	in.sort();
+
+	unt i1 = 0, i2 = 0;
+	geo_state state = GEO_OUT;
+	std::vector<Intersection> new_intersections;
+	while (i1 < m_intersections.size() || i2 < in.m_intersections.size())
+	{
+		if (i2 >= in.m_intersections.size() || (i1 < m_intersections.size() && m_intersections[i1].param < in.m_intersections[i2].param))
+		{
+			switch (state)
+			{
+			case GEO_OUT:
+				new_intersections.push_back(m_intersections[i1]);
+				if (m_intersections[i1].type == _3D_FIG)
+					state = GEO_IN_1_;
+				break;
+			case GEO_IN_1_:
+				if (m_intersections[i1].type == _3D_FIG)
+				{
+					new_intersections.push_back(m_intersections[i1]);
+					state = GEO_OUT;
+				}
+				break;
+			case GEO_IN_2_:
+				if (m_intersections[i1].type == _3D_FIG)
+					state = GEO_IN_1_2_;
+				break;
+			case GEO_IN_1_2_:
+				if (m_intersections[i1].type == _3D_FIG)
+					state = GEO_IN_2_;
+				break;
+			}
+			i1++;
+		}
+		else
+		{
+			switch (state)
+			{
+			case GEO_OUT:
+				new_intersections.push_back(in.m_intersections[i2]);
+				if (in.m_intersections[i2].type == _3D_FIG)
+					state = GEO_IN_2_;
+				break;
+			case GEO_IN_2_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+				{
+					new_intersections.push_back(in.m_intersections[i2]);
+					state = GEO_OUT;
+				}
+				break;
+			case GEO_IN_1_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+					state = GEO_IN_1_2_;
+				break;
+			case GEO_IN_1_2_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+					state = GEO_IN_1_;
+				break;
+			}
+			i2++;
+		}
+	}
+	m_intersections = new_intersections;
+
+	return true;
+}
+
+bool Intersector::csg_intersection(Intersector &in)
+{
+	std::vector<Intersection> new_intersections;
+	if (in.size() == 0 || m_intersections.size() == 0)
+	{
+		m_intersections = new_intersections;
+		return true;
+	}
+	sort();
+	in.sort();
+	
+	unt i1 = 0, i2 = 0;
+	geo_state state = GEO_OUT;
+	while (i1 < m_intersections.size() || i2 < in.m_intersections.size())
+	{
+		if (i2 >= in.m_intersections.size() || (i1 < m_intersections.size() && m_intersections[i1].param < in.m_intersections[i2].param))
+		{
+			switch (state)
+			{
+			case GEO_OUT:
+				if (m_intersections[i1].type == _3D_FIG)
+					state = GEO_IN_1_;
+				break;
+			case GEO_IN_1_:
+				if (m_intersections[i1].type == _3D_FIG)
+					state = GEO_OUT;
+				break;
+			case GEO_IN_2_:
+				new_intersections.push_back(m_intersections[i1]);
+				if (m_intersections[i1].type == _3D_FIG)
+					state = GEO_IN_1_2_;
+				break;
+			case GEO_IN_1_2_:
+				if (m_intersections[i1].type == _3D_FIG)
+				{
+					new_intersections.push_back(m_intersections[i1]);
+					state = GEO_IN_2_;
+				}
+				break;
+			}
+			i1++;
+		}
+		else
+		{
+			switch (state)
+			{
+			case GEO_OUT:
+				if (in.m_intersections[i2].type == _3D_FIG)
+					state = GEO_IN_2_;
+				break;
+			case GEO_IN_2_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+					state = GEO_OUT;
+				break;
+			case GEO_IN_1_:
+				new_intersections.push_back(in.m_intersections[i2]);
+				if (in.m_intersections[i2].type == _3D_FIG)
+					state = GEO_IN_1_2_;
+				break;
+			case GEO_IN_1_2_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+				{
+					new_intersections.push_back(in.m_intersections[i2]);
+					state = GEO_IN_1_;
+				}
+				break;
+			}
+			i2++;
+		}
+	}
+	m_intersections = new_intersections;
+	return true;
+}
+
+bool Intersector::csg_difference(Intersector &in)
+{
+	if (in.size() == 0 || m_intersections.size() == 0)
+	{
+		return true;
+	}
+	sort();
+	in.sort();
+	unt i1 = 0, i2 = 0;
+	geo_state state = GEO_OUT;
+	std::vector<Intersection> new_intersections;
+	while (i1 < m_intersections.size() || i2 < in.m_intersections.size())
+	{
+		if (i2 >= in.m_intersections.size() || (i1 < m_intersections.size() && m_intersections[i1].param < in.m_intersections[i2].param))
+		{
+			switch (state)
+			{
+			case GEO_OUT:
+				new_intersections.push_back(m_intersections[i1]);
+				if (m_intersections[i1].type == _3D_FIG)
+					state = GEO_IN_1_;
+				break;
+			case GEO_IN_1_:
+				if (m_intersections[i1].type == _3D_FIG)
+				{
+					new_intersections.push_back(m_intersections[i1]);
+					state = GEO_OUT;
+				}
+				break;
+			case GEO_IN_2_:
+				if (m_intersections[i1].type == _3D_FIG)
+				{
+					state = GEO_IN_1_2_;
+				}
+				break;
+			case GEO_IN_1_2_:
+				if (m_intersections[i1].type == _3D_FIG)
+				{
+					state = GEO_IN_2_;
+				}
+			}
+			i1++;
+		}
+		else
+		{
+			switch (state)
+			{
+			case GEO_OUT:
+				if (in.m_intersections[i2].type == _3D_FIG)
+					state = GEO_IN_2_;
+				break;
+			case GEO_IN_2_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+				{
+					state = GEO_OUT;
+				}
+				break;
+			case GEO_IN_1_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+				{
+					new_intersections.push_back(in.m_intersections[i2]);
+					state = GEO_IN_1_2_;
+				}
+				break;
+			case GEO_IN_1_2_:
+				if (in.m_intersections[i2].type == _3D_FIG)
+					new_intersections.push_back(in.m_intersections[i2]);
+					state = GEO_IN_1_;
+				break;
+			}
+			i2++;
+		}
+	}
+	m_intersections = new_intersections;
+
+	return true;
+}
+
+bool Intersector::push_back(Intersector &points)
+{
+	m_intersections.insert(m_intersections.end(), points.m_intersections.begin(), points.m_intersections.end());
+	return true;
+}
+
+bool Intersector::push_back(Intersection &point)
 {
 	float k;
 	if (abs(m_ray.direction.x) > abs(m_ray.direction.y) && abs(m_ray.direction.x) > abs(m_ray.direction.z))
@@ -75,7 +320,10 @@ bool Intersector::push_back(Intersection point)
 	else
 		k = (point.point.z - m_ray.origin.z) / m_ray.direction.z;
 
-	if (k < 0)
+	point.param = k;
+	m_intersections.push_back(point);
+
+	/*if (k < 0)
 		return false;
 
 	if (m_intersections.empty())
@@ -91,8 +339,23 @@ bool Intersector::push_back(Intersection point)
 			point.param = k;
 			m_intersections.push_back(point);
 		}
-	}
+	}*/
 	return true;
+}
+
+Intersection &Intersector::getFirst()
+{
+	float min_param = FLT_MAX;
+	unt ind = 0;
+	for (unt i = 0; i < m_intersections.size(); i++)
+	{
+		if (m_intersections[i].param >= 0 && m_intersections[i].param < min_param)
+		{
+			min_param = m_intersections[i].param;
+			ind = i;
+		}
+	}
+	return m_intersections[ind];
 }
 
 Intersector intersectPlane(glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, Ray ray) {
@@ -122,6 +385,7 @@ Intersector intersectPlane(glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, Ray ray) {
 		Intersection inter;
 		inter.param = t;
 		inter.point = orig + t * dir;
+		inter.type = _2D_FIG;
 		res.push_back(inter);
 	}
 	return res;
@@ -167,6 +431,7 @@ Intersector Triangle::intersect(Ray ray) {
 		Intersection inter;
 		inter.param = t;
 		inter.point = orig + t * dir;
+		inter.type = _2D_FIG;
 		res.push_back(inter);
 	}
 	return res;
@@ -190,17 +455,19 @@ Intersector Sphere::intersect(Ray ray) {
 	float x1 = (-b - sqrtf(rad)) / a;
 	float x2 = (-b + sqrtf(rad)) / a;
 
-	if (x1 > FLT_EPSILON) {
+	if (fabs(x1) > FLT_EPSILON) {
 		Intersection inter;
 		inter.param = x1;
 		inter.point = orig + x1 * dir;
+		inter.type = _3D_FIG;
 		res.push_back(inter);
 	}
 
-	if (x2 > FLT_EPSILON) {
+	if (fabs(x2) > FLT_EPSILON) {
 		Intersection inter;
 		inter.param = x2;
 		inter.point = orig + x2 * dir;
+		inter.type = _3D_FIG;
 		res.push_back(inter);
 	}
 
@@ -213,6 +480,8 @@ Intersector Cylinder::intersect(Ray ray) {
 	Intersector res(ray), r1(ray), r2(ray);
 
 	Intersection in, out;
+	in.type = _3D_FIG;
+	out.type = _3D_FIG;
 	if (intcyl(ray.origin, ray.direction, radius, &(in.point), &(out.point)))
 	{
 		if (in.point.z <= height && in.point.z >= -height)
@@ -221,10 +490,16 @@ Intersector Cylinder::intersect(Ray ray) {
 			res.push_back(out);
 		r1 = intersectPlane(glm::vec3(0, 0, height), glm::vec3(0, 1, height), glm::vec3(1, 0, height), ray);
 		if (r1.size() != 0 && r1[0].point.x*r1[0].point.x + r1[0].point.y*r1[0].point.y <= radius*radius)
+		{
+			r1[0].type = _3D_FIG;
 			res.push_back(r1[0]);
+		}
 		r2 = intersectPlane(glm::vec3(0, 0, -height), glm::vec3(0, 1, -height), glm::vec3(1, 0, -height), ray);
 		if (r2.size() != 0 && r2[0].point.x*r2[0].point.x + r2[0].point.y*r2[0].point.y <= radius*radius)
+		{
+			r2[0].type = _3D_FIG;
 			res.push_back(r2[0]);
+		}
 		return res;
 	}
 
@@ -237,6 +512,8 @@ Intersector Cone::intersect(Ray ray) {
 	Intersector res(ray), r2(ray);
 
 	Intersection in, out;
+	in.type = _3D_FIG;
+	out.type = _3D_FIG;
 	if (intcon(ray.origin, ray.direction, radius / height, &(in.point), &(out.point)))
 	{
 		if (in.point.z <= 0 && in.point.z >= -height)
@@ -245,7 +522,10 @@ Intersector Cone::intersect(Ray ray) {
 			res.push_back(out);
 		r2 = intersectPlane(glm::vec3(0, 0, -height), glm::vec3(0, 1, -height), glm::vec3(1, 0, -height), ray);
 		if (r2.size() != 0 && r2[0].point.x*r2[0].point.x + r2[0].point.y*r2[0].point.y <= radius*radius)
+		{
+			r2[0].type = _3D_FIG;
 			res.push_back(r2[0]);
+		}
 		return res;
 	}
 
@@ -273,11 +553,11 @@ Intersector Torus::intersect(Ray ray) {
 	switch (n)
 	{
 	case 4:
-		res.push_back(Intersection(ray.origin + dir * float(x[3])));
-		res.push_back(Intersection(ray.origin + dir * float(x[2])));
+		res.push_back(Intersection(ray.origin + dir * float(x[3]), _3D_FIG));
+		res.push_back(Intersection(ray.origin + dir * float(x[2]), _3D_FIG));
 	case 2:
-		res.push_back(Intersection(ray.origin + dir * float(x[1])));
-		res.push_back(Intersection(ray.origin + dir * float(x[0])));
+		res.push_back(Intersection(ray.origin + dir * float(x[1]), _3D_FIG));
+		res.push_back(Intersection(ray.origin + dir * float(x[0]), _3D_FIG));
 		break;
 	}
 

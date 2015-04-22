@@ -7,23 +7,35 @@
 #include "utils.h"
 #include <glm/gtx/matrix_transform_2d.hpp>
 
+enum intersection_type { _2D_FIG, _3D_FIG };
+
 struct Intersection {
 	Intersection() {}
-	Intersection(glm::vec3 point) :point(point), param(0.f){}
-	Intersection(glm::vec3 point, float param) :point(point), param(param){}
+	Intersection(glm::vec3 point, intersection_type tp) :point(point), param(0.f), type(tp){}
+	Intersection(glm::vec3 point, float param, intersection_type tp) :point(point), param(param), type(tp){}
 	float param;
 	glm::vec3 point;
+	intersection_type type;
 };
 
 
 struct Intersector {
 	std::vector<Intersection> m_intersections;
 	Ray m_ray;
-	Intersector(Ray ray) : m_ray(ray) {}
+	Intersector(Ray &ray) : m_ray(ray) {}
 
-	bool push_back(Intersection point);
+	bool sort();
+	bool push_back(Intersection &point);
+	bool push_back(Intersector &points);
+	void mul_on_mat(glm::mat4x4 &mat);
 	unt size() { return m_intersections.size(); }
 	Intersection &operator [] (unt pos){ return m_intersections[pos]; }
+
+	bool csg_union(Intersector &in);
+	bool csg_intersection(Intersector &in);
+	bool csg_difference(Intersector &in);
+
+	Intersection &getFirst();
 };
 
 
@@ -32,6 +44,7 @@ public:
 	virtual Intersector intersect(Ray ray) = 0 {};
 };
 
+enum csg_type { CSG_NONE, CSG_UNION, CSG_INTERSECTION, CSG_DIFFERENCE };
 
 class GroupObject : public Object  {
 public:
@@ -41,19 +54,7 @@ public:
 
 	glm::mat4x4 m_mat;
 	glm::mat4x4 m_inv;
-
-private:
-	std::vector<std::shared_ptr<Object>> m_scene;
-};
-
-
-class IntersectionObject : public Object  {
-public:
-	IntersectionObject() : m_mat(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), m_inv(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1){}
-	virtual Intersector intersect(Ray ray);
-	void push_back(std::shared_ptr<Object> obj);
-	glm::mat4x4 m_mat;
-	glm::mat4x4 m_inv;
+	csg_type m_csg_type;
 
 private:
 	std::vector<std::shared_ptr<Object>> m_scene;
