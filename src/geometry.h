@@ -11,10 +11,11 @@ enum intersection_type { _2D_FIG, _3D_FIG };
 
 struct Intersection {
 	Intersection() {}
-	Intersection(glm::vec3 point, intersection_type tp) :point(point), param(0.f), type(tp){}
-	Intersection(glm::vec3 point, float param, intersection_type tp) :point(point), param(param), type(tp){}
+	Intersection(glm::vec3 point, glm::vec3 normal, intersection_type tp) :point(point), normal(normal), param(0.f), type(tp){}
+	Intersection(glm::vec3 point, glm::vec3 normal, float param, intersection_type tp) :point(point), normal(normal), param(param), type(tp){}
 	float param;
 	glm::vec3 point;
+	glm::vec3 normal;
 	intersection_type type;
 };
 

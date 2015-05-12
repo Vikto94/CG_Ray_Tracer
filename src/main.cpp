@@ -5,6 +5,7 @@
 int main(int argc, char** argv) {
 	std::string scene = "scene.yaml";
 	std::string out = "res.bmp";
+	std::string norm = "norm.bmp";
 	unt x_res = 400;
 	unt y_res = 300;
 	unt trace_depth = 300;
@@ -22,12 +23,15 @@ int main(int argc, char** argv) {
 		else if (str.substr(0, 9) == "--output=") {
 			out = str.substr(9, str.size() - 9);
 		}
+		else if (str.substr(0, 17) == "--output_normals=") {
+			norm = str.substr(17, str.size() - 17);
+		}
 		else if (str.substr(0, 14) == "--trace_depth=") {
 			trace_depth = std::stoi(str.substr(14, str.size() - 14));
 		}
 	}
 
-	RayTracer rt(scene, out, x_res, y_res, trace_depth);
+	RayTracer rt(scene, out, norm, x_res, y_res, trace_depth);
 	rt.traceRays();
 	return 0;
 }

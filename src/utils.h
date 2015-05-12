@@ -10,9 +10,15 @@ struct Color
 {
 	Color();
 	Color(unc r, unc g, unc b) : red(r), green(g), blue(b) {};
+	Color(unc r) : red(r), green(r), blue(r) {};
 	unc red;
 	unc green;
 	unc blue;
+};
+
+struct PointColor{
+	PointColor(Color out, Color norm) : out(out), norm(norm) {};
+	Color out, norm;
 };
 
 struct Ray {

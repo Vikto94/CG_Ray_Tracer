@@ -262,6 +262,7 @@ void RayTracer::ScanObject(FILE *f)
 
 RayTracer::RayTracer(	std::string		scene,
 						std::string		out,
+						std::string		norm,
 						unt				x_res,
 						unt				y_res,
 						unt				trace_depth) :						
@@ -269,7 +270,9 @@ camera(Camera()),
 width(x_res),
 height(y_res),
 image(Image(x_res, y_res)),
+image_normal(Image(x_res, y_res)),
 out_name(out),
+norm_name(norm),
 m_scene()
 {
 	FILE *f = fopen(scene.data(), "r");
@@ -307,10 +310,13 @@ void RayTracer::traceRays() {
 			{
 				x = x;
 			}
-			image.setPixelColor(x + width_shift, y + height_shift, traceRay(ray));
+			PointColor col = traceRay(ray);
+			image.setPixelColor(x + width_shift, y + height_shift, col.out);
+			image_normal.setPixelColor(x + width_shift, y + height_shift, col.norm);
 		}
 	}
 	image.saveImage(out_name.c_str());
+	image_normal.saveImage(norm_name.c_str());
 }
 
 float len(glm::vec3 vec){
@@ -322,16 +328,16 @@ float len(glm::vec3 vec){
 	return res;
 }
 
-Color RayTracer::traceRay(Ray ray) {
+PointColor &RayTracer::traceRay(Ray ray) {
 	Intersector in = m_scene.intersect(ray);
 	if (in.size() > 0) {
 		Intersection r = in.getFirst();
 		if (r.param <= 0)
-			return Color(0, 0, 0);
-		return Color(len(r.point), len(r.point), len(r.point));
+			return PointColor(Color(0, 0, 0), Color(0, 0, 0));
+		return PointColor(Color(len(r.point)), Color(abs(glm::normalize(r.point).z * 255.f)));
 	}
 	else
 	{
-		return Color(0, 0, 0);
+		return PointColor(Color(0, 0, 0), Color(0, 0, 0));
 	}
 }

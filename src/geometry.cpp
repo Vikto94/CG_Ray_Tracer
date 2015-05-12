@@ -47,6 +47,12 @@ void Intersector::mul_on_mat(glm::mat4x4 &mat)
 		m_intersections[i].point.y = vec.y;
 		m_intersections[i].point.z = vec.z;
 
+		glm::vec4 vect(m_intersections[i].normal.x, m_intersections[i].normal.y, m_intersections[i].normal.z, 1.f);
+		vect = mat * vect;
+		m_intersections[i].normal.x = vect.x;
+		m_intersections[i].normal.y = vect.y;
+		m_intersections[i].normal.z = vect.z;
+
 		float k;
 		if (abs(m_ray.direction.x) > abs(m_ray.direction.y) && abs(m_ray.direction.x) > abs(m_ray.direction.z))
 			k = (m_intersections[i].point.x - m_ray.origin.x) / m_ray.direction.x;
@@ -323,23 +329,6 @@ bool Intersector::push_back(Intersection &point)
 	point.param = k;
 	m_intersections.push_back(point);
 
-	/*if (k < 0)
-		return false;
-
-	if (m_intersections.empty())
-	{
-		point.param = k;
-		m_intersections.push_back(point);
-	}
-	else
-	{
-		if (m_intersections[0].param > k)
-		{
-			m_intersections.pop_back();
-			point.param = k;
-			m_intersections.push_back(point);
-		}
-	}*/
 	return true;
 }
 
@@ -385,6 +374,7 @@ Intersector intersectPlane(glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, Ray ray) {
 		Intersection inter;
 		inter.param = t;
 		inter.point = orig + t * dir;
+		inter.normal = glm::normalize(glm::cross(edge1, edge2));
 		inter.type = _2D_FIG;
 		res.push_back(inter);
 	}
@@ -430,6 +420,7 @@ Intersector Triangle::intersect(Ray ray) {
 	if (t > FLT_EPSILON) {
 		Intersection inter;
 		inter.param = t;
+		inter.normal = glm::normalize(glm::cross(edge1, edge2));
 		inter.point = orig + t * dir;
 		inter.type = _2D_FIG;
 		res.push_back(inter);
@@ -458,6 +449,7 @@ Intersector Sphere::intersect(Ray ray) {
 	if (fabs(x1) > FLT_EPSILON) {
 		Intersection inter;
 		inter.param = x1;
+		inter.normal = glm::normalize((orig + x1 * dir) / radius);
 		inter.point = orig + x1 * dir;
 		inter.type = _3D_FIG;
 		res.push_back(inter);
@@ -466,6 +458,7 @@ Intersector Sphere::intersect(Ray ray) {
 	if (fabs(x2) > FLT_EPSILON) {
 		Intersection inter;
 		inter.param = x2;
+		inter.normal = glm::normalize((orig + x2 * dir) / radius);
 		inter.point = orig + x2 * dir;
 		inter.type = _3D_FIG;
 		res.push_back(inter);
@@ -485,9 +478,15 @@ Intersector Cylinder::intersect(Ray ray) {
 	if (intcyl(ray.origin, ray.direction, radius, &(in.point), &(out.point)))
 	{
 		if (in.point.z <= height && in.point.z >= -height)
+		{
+			in.normal = glm::normalize(glm::vec3(in.point.x, in.point.y, 0));
 			res.push_back(in);
+		}
 		if (out.point.z <= height && out.point.z >= -height)
+		{
+			out.normal = glm::normalize(glm::vec3(out.point.x, out.point.y, 0));
 			res.push_back(out);
+		}
 		r1 = intersectPlane(glm::vec3(0, 0, height), glm::vec3(0, 1, height), glm::vec3(1, 0, height), ray);
 		if (r1.size() != 0 && r1[0].point.x*r1[0].point.x + r1[0].point.y*r1[0].point.y <= radius*radius)
 		{
@@ -517,9 +516,17 @@ Intersector Cone::intersect(Ray ray) {
 	if (intcon(ray.origin, ray.direction, radius / height, &(in.point), &(out.point)))
 	{
 		if (in.point.z <= 0 && in.point.z >= -height)
+		{
+			in.normal = glm::normalize(glm::vec3(in.point.x, in.point.y, 
+				-radius / height * sqrt(in.point.x*in.point.x + in.point.y*in.point.y)));
 			res.push_back(in);
+		}
 		if (out.point.z <= 0 && out.point.z >= -height)
+		{
+			out.normal = glm::normalize(glm::vec3(out.point.x, out.point.y,
+				-radius / height * sqrt(out.point.x*out.point.x + out.point.y*out.point.y)));
 			res.push_back(out);
+		}
 		r2 = intersectPlane(glm::vec3(0, 0, -height), glm::vec3(0, 1, -height), glm::vec3(1, 0, -height), ray);
 		if (r2.size() != 0 && r2[0].point.x*r2[0].point.x + r2[0].point.y*r2[0].point.y <= radius*radius)
 		{
@@ -550,14 +557,39 @@ Intersector Torus::intersect(Ray ray) {
 	double x[4];
 
 	int n = SolveP4(x, a, b, c, d);
+
+	float koef;
+	glm::vec3 pnt, norm;
 	switch (n)
 	{
 	case 4:
-		res.push_back(Intersection(ray.origin + dir * float(x[3]), _3D_FIG));
-		res.push_back(Intersection(ray.origin + dir * float(x[2]), _3D_FIG));
+		pnt = ray.origin + dir * float(x[3]);
+		koef = radius / sqrt(pnt.x * pnt.x + pnt.y * pnt.y);
+		norm.x = (1 - koef) * pnt.x;
+		norm.y = (1 - koef) * pnt.y;
+		norm.z = pnt.z;
+		res.push_back(Intersection(pnt, normalize(norm), _3D_FIG));
+		
+		pnt = ray.origin + dir * float(x[3]);
+		koef = radius / sqrt(pnt.x * pnt.x + pnt.y * pnt.y);
+		norm.x = (1 - koef) * pnt.x;
+		norm.y = (1 - koef) * pnt.y;
+		norm.z = pnt.z;
+		res.push_back(Intersection(pnt, normalize(norm), _3D_FIG));
 	case 2:
-		res.push_back(Intersection(ray.origin + dir * float(x[1]), _3D_FIG));
-		res.push_back(Intersection(ray.origin + dir * float(x[0]), _3D_FIG));
+		res.push_back(Intersection(pnt, normalize(norm), _3D_FIG));
+		pnt = ray.origin + dir * float(x[3]);
+		koef = radius / sqrt(pnt.x * pnt.x + pnt.y * pnt.y);
+		norm.x = (1 - koef) * pnt.x;
+		norm.y = (1 - koef) * pnt.y;
+		norm.z = pnt.z;
+
+		res.push_back(Intersection(pnt, normalize(norm), _3D_FIG));
+		pnt = ray.origin + dir * float(x[3]);
+		koef = radius / sqrt(pnt.x * pnt.x + pnt.y * pnt.y);
+		norm.x = (1 - koef) * pnt.x;
+		norm.y = (1 - koef) * pnt.y;
+		norm.z = pnt.z;
 		break;
 	}
 

@@ -8,12 +8,13 @@ class RayTracer {
 public:
 	RayTracer(	std::string		scene = "scene.yaml",
 				std::string		out = "res.bmp",
+				std::string		norm = "norm.bmp",
 				unt				x_res = 400,
 				unt				y_res = 300,
 				unt				trace_depth = 300);
   void traceRays();
 private:
-  Color traceRay ( Ray ray );
+	PointColor & traceRay(Ray ray);
 
   void ScanCamera(FILE *f);
   void ScanObject(FILE *f);
@@ -21,9 +22,11 @@ private:
 
   Camera camera;
   Image image;
+  Image image_normal;
   int width, height, width_shift, height_shift;
   float dist;
   std::string out_name;
+  std::string norm_name;
 
   GroupObject m_scene;
 };
