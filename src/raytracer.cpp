@@ -334,7 +334,7 @@ PointColor &RayTracer::traceRay(Ray ray) {
 		Intersection r = in.getFirst();
 		if (r.param <= 0)
 			return PointColor(Color(0, 0, 0), Color(0, 0, 0));
-		return PointColor(Color(len(r.point)), Color(abs(glm::normalize(r.point).z * 255.f)));
+		return PointColor(Color(len(r.point)), Color(abs(glm::normalize(r.normal).z * 255.f)));
 	}
 	else
 	{
